@@ -20,7 +20,7 @@ O processo foi projetado para ser **seguro, automatizado e interativo**, reduzin
 
 # 📦 Este projeto
 
-Este script foi desenvolvido para restaurar ambientes **Zabbix 7.0 LTS** a partir de backups previamente gerados, automatizando a recuperação do banco de dados e dos arquivos de configuração.
+Este script foi desenvolvido para restaurar ambientes **Zabbix 5.0, 6.0 e 7.0 LTS** a partir de backups previamente gerados, automatizando a recuperação do banco de dados e dos arquivos de configuração.
 
 Ele faz parte de uma suíte de automação para o Zabbix, composta por scripts de instalação, backup e restauração.
 
@@ -326,5 +326,5 @@ Você pode utilizar, modificar e distribuir este projeto livremente, desde que m
 
 # 👨‍💻 Autor
 
-Desenvolvido para automatizar a restauração de ambientes **Zabbix 7.0 LTS**, reduzindo o tempo de recuperação, padronizando procedimentos de Disaster Recovery e simplificando a administração de servidores Linux.
+Desenvolvido para automatizar a restauração de ambientes **Zabbix 5.0, 6.0 e 7.0 LTS**, reduzindo o tempo de recuperação, padronizando procedimentos de Disaster Recovery e simplificando a administração de servidores Linux.
 ```
