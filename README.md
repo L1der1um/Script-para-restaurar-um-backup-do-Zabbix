@@ -12,7 +12,7 @@
 
 </p>
 
-Script desenvolvido para realizar a **restauração completa de ambientes Zabbix 7.0 LTS**, recuperando automaticamente o banco de dados MySQL/MariaDB e os arquivos de configuração previamente armazenados em backups.
+Script desenvolvido para realizar a **restauração completa de ambientes Zabbix 5.0, 6.0 e 7.0 LTS**, recuperando automaticamente o banco de dados MySQL/MariaDB e os arquivos de configuração previamente armazenados em backups.
 
 O processo foi projetado para ser **seguro, automatizado e interativo**, reduzindo o tempo necessário para recuperação de ambientes em casos de falha, migração ou desastre.
 
