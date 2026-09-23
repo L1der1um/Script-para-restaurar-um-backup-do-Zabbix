@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Script de Restauração Automatizada - Zabbix 7.0 , 6.0 e 5.0 LTS
-# Compatibilidade: Debian 12/13 e Ubuntu Server (MariaDB / MySQL)
+# Script de Restauração Automatizada - Zabbix 7.0 | 6.0 | 5.0 (Disaster Recovery)
 # ==============================================================================
 
 set -e
@@ -40,7 +39,7 @@ if [ "$(id -u)" != "0" ]; then
     exit 1
 fi
 
-# 2. Seleção interativa do snapshot de backup
+# 2. Seleção interativa da pasta de backup (Snapshot do dia)
 selecionar_backup() {
     echo -e "\n📂 ${BLUE}Snapshots de backup disponíveis em $BACKUP_DIR:${NC}"
     
@@ -49,7 +48,6 @@ selecionar_backup() {
         exit 1
     fi
 
-    # Mapeia diretórios iniciados por bkp_
     mapfile -t backups < <(ls -1td "$BACKUP_DIR"/bkp_* 2>/dev/null | xargs -n1 basename 2>/dev/null)
 
     if [ ${#backups[@]} -eq 0 ]; then
@@ -65,7 +63,7 @@ selecionar_backup() {
 
     echo ""
     while true; do
-        read -rp "👉 Selecione o backup para restaurar [1-${#backups[@]}]: " backup_num
+        read -rp "👉 Selecione o diretório de backup [1-${#backups[@]}]: " backup_num
         if [[ "$backup_num" =~ ^[0-9]+$ ]] && [ "$backup_num" -ge 1 ] && [ "$backup_num" -le "${#backups[@]}" ]; then
             selected_backup="${backups[$((backup_num-1))]}"
             BACKUP_PATH="$BACKUP_DIR/$selected_backup"
@@ -75,7 +73,7 @@ selecionar_backup() {
         fi
     done
 
-    echo -e "\n🔍 ${BLUE}Artefatos identificados no snapshot selecionado:${NC}"
+    echo -e "\n🔍 ${BLUE}Artefatos identificados em $selected_backup:${NC}"
     ls -lh "$BACKUP_PATH"
 }
 
@@ -83,13 +81,38 @@ selecionar_backup() {
 restaurar_zabbix() {
     echo -e "\n🔵 ${BLUE}Iniciando procedimento de Restauração...${NC}"
 
-    local zabbix_db_file
-    zabbix_db_file=$(find "$BACKUP_PATH" -name "zabbix_db_*.sql.gz" | head -1)
+    # Identifica todos os dumps relacionais ordenados cronologicamente (mais novo primeiro)
+    mapfile -t db_files < <(ls -1t "$BACKUP_PATH"/zabbix_db_*.sql.gz 2>/dev/null)
 
-    if [ ! -f "$zabbix_db_file" ]; then
-        echo -e "${RED}❌ Erro: Arquivo relacional (zabbix_db_*.sql.gz) não encontrado em $BACKUP_PATH.${NC}"
+    local zabbix_db_file=""
+
+    if [ ${#db_files[@]} -eq 0 ]; then
+        echo -e "${RED}❌ Erro: Nenhum dump de banco (zabbix_db_*.sql.gz) encontrado em $BACKUP_PATH.${NC}"
         exit 1
+    elif [ ${#db_files[@]} -eq 1 ]; then
+        zabbix_db_file="${db_files[0]}"
+        echo -e "📦 Dump único identificado: ${YELLOW}$(basename "$zabbix_db_file")${NC} ($(du -h "$zabbix_db_file" | cut -f1))"
+    else
+        echo -e "\n⚠️  ${YELLOW}Múltiplos dumps de banco encontrados. Selecione qual deseja restaurar:${NC}"
+        for i in "${!db_files[@]}"; do
+            local d_size
+            d_size=$(du -h "${db_files[$i]}" | cut -f1)
+            echo -e "  ${YELLOW}$((i+1)).${NC} $(basename "${db_files[$i]}") (${d_size})"
+        done
+
+        echo ""
+        while true; do
+            read -rp "👉 Selecione o dump do banco [1-${#db_files[@]}]: " db_num
+            if [[ "$db_num" =~ ^[0-9]+$ ]] && [ "$db_num" -ge 1 ] && [ "$db_num" -le "${#db_files[@]}" ]; then
+                zabbix_db_file="${db_files[$((db_num-1))]}"
+                break
+            else
+                echo -e "${RED}Opção inválida. Digite um número da lista de dumps.${NC}"
+            fi
+        done
     fi
+
+    echo -e "\n🎯 Dump selecionado para restauração: ${GREEN}$(basename "$zabbix_db_file")${NC}"
 
     # Credenciais do Banco
     read -rp "👉 Usuário do MariaDB/MySQL [Padrão: zabbix]: " mysql_user
@@ -99,24 +122,24 @@ restaurar_zabbix() {
     echo ""
     mysql_pass=${mysql_pass:-zabbix}
 
-    # Interrompe daemons para evitar gravações concorrentes
+    # Interrompe daemons para integridade referencial
     echo -e "\n🛑 ${YELLOW}[1/5] Parando serviços para garantir integridade referencial...${NC}"
     systemctl stop zabbix-server zabbix-agent apache2 2>/dev/null || true
 
-    # Libera criação de funções e triggers sem restrição estrita de binlog
+    # Libera criação de funções sem bloqueio estrito de binlogs
     echo -e "🔓 ${YELLOW}[2/5] Ajustando diretivas de compatibilidade de funções (Erro 1419)...${NC}"
     mysql -e "SET GLOBAL log_bin_trust_function_creators = 1;" 2>/dev/null || true
 
-    # Recriação estrita da base com UTF8MB4_BIN (Exigência Zabbix 7.0 LTS)
-    echo -e "🧹 ${YELLOW}[3/5] Recriando base de dados com collation oficial (utf8mb4_bin)...${NC}"
+    # Recriação com a collation mandatória do Zabbix 7.0 LTS
+    echo -e "🧹 ${YELLOW}[3/5] Recriando base de dados limpa (utf8mb4_bin)...${NC}"
     if ! MYSQL_PWD="$mysql_pass" mysql -u "$mysql_user" -e "DROP DATABASE IF EXISTS zabbix; CREATE DATABASE zabbix CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;"; then
         echo -e "${RED}❌ Falha ao recriar banco de dados. Verifique usuário e senha informados.${NC}"
         mysql -e "SET GLOBAL log_bin_trust_function_creators = 0;" 2>/dev/null || true
         exit 1
     fi
 
-    # Injeção direta sem alteração destrutiva de caracteres
-    echo -e "🔄 ${YELLOW}[4/5] Injetando dump relacional (isto pode levar alguns minutos)...${NC}"
+    # Injeção em fluxo contínuo
+    echo -e "🔄 ${YELLOW}[4/5] Injetando dump relacional selecionado (isto pode levar alguns minutos)...${NC}"
     set -o pipefail
     local err_log
     err_log=$(mktemp)
@@ -132,10 +155,10 @@ restaurar_zabbix() {
     rm -f "$err_log"
     echo -e "  ${GREEN}✔ Banco de dados importado com sucesso.${NC}"
 
-    # Retorna segurança de binlogs
+    # Retorna parâmetro de binlogs
     mysql -e "SET GLOBAL log_bin_trust_function_creators = 0;" 2>/dev/null || true
 
-    # Restauração de arquivos de sistema e templates
+    # Restauração de configurações físicas
     echo -e "📦 ${YELLOW}[5/5] Restaurando arquivos físicos e configurações...${NC}"
     local zabbix_files
     zabbix_files=$(find "$BACKUP_PATH" -name "zabbix_dirs_*.tar.gz" | head -1)
@@ -144,26 +167,25 @@ restaurar_zabbix() {
         tar -xzf "$zabbix_files" -C /
         echo -e "  ${GREEN}✔ Configurações e diretórios restaurados na raiz.${NC}"
     else
-        echo -e "  ${YELLOW}⚠️  Aviso: Arquivo de diretórios não encontrado. Apenas a base foi restaurada.${NC}"
+        echo -e "  ${YELLOW}⚠️  Aviso: Arquivo de diretórios não localizado. Apenas a base foi restaurada.${NC}"
     fi
 
-    # Reinicialização dos serviços
+    # Reinicialização e validação de serviços
     echo -e "\n🚀 ${BLUE}Reiniciando ecossistema de monitoramento...${NC}"
     systemctl restart mariadb 2>/dev/null || true
     systemctl restart zabbix-server zabbix-agent apache2
     
-    # Reinicia PHP-FPM dinamicamente caso esteja em execução
+    # Reinicia PHP-FPM se existente
     PHP_SVC=$(systemctl list-units --type=service --state=running | grep -oE "php[0-9.]+-fpm" | head -1 || true)
     [ -n "$PHP_SVC" ] && systemctl restart "$PHP_SVC"
 
-    # Validação ativa de disponibilidade
     sleep 2
     if systemctl is-active --quiet zabbix-server; then
-        echo -e "${GREEN}========================================================"
+        echo -e "\n${GREEN}========================================================"
         echo -e "   ✅ RESTAURAÇÃO CONCLUÍDA: ZABBIX TOTALMENTE OPERACIONAL!"
-        echo -e "========================================================${NC}"
+        echo -e "========================================================${NC}\n"
     else
-        echo -e "${RED}⚠️  Alerta: O daemon do Zabbix Server não subiu automaticamente. Verifique '/var/log/zabbix/zabbix_server.log'.${NC}"
+        echo -e "\n${RED}⚠️  Alerta: O daemon do Zabbix Server não subiu automaticamente. Verifique '/var/log/zabbix/zabbix_server.log'.${NC}\n"
     fi
 }
 
