@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Script de Restauração Automatizada - Zabbix 7.0 LTS
+# Script de Restauração Automatizada - Zabbix 7.0 , 6.0 e 5.0 LTS
 # Compatibilidade: Debian 12/13 e Ubuntu Server (MariaDB / MySQL)
 # ==============================================================================
 
@@ -24,7 +24,7 @@ show_splash() {
     echo "╚══════╝╚═╝  ╚═╝╚═════╝╚═════╝ ╚═╝╚═╝  ╚═╝"
     echo -e "\e[0m"
     echo "========================================================"
-    echo "            RESTAURAÇÃO ZABBIX 7 LTS"
+    echo "            RESTAURAÇÃO ZABBIX"
     echo "========================================================"
     echo ""
     sleep 1
